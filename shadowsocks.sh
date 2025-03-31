@@ -10,6 +10,10 @@ fi
 echo "Обновление системы..."
 apt update && apt upgrade -y
 
+# Установка доп.по
+echo "Установка доп.по..."
+apt install -y tmux wget curl git vim htop tar
+
 # Установка необходимых пакетов
 echo "Установка необходимых пакетов..."
 apt install -y shadowsocks-libev certbot python3-certbot-nginx nginx ufw
@@ -54,7 +58,7 @@ EOL
 systemctl enable shadowsocks-libev.service
 systemctl restart shadowsocks-libev.service
 
-# Настройка Nginx для домена
+# Настройка Nginx для домена (первоначальная конфигурация без SSL)
 echo "Настройка Nginx..."
 DOMAIN="test.com"
 NGINX_CONFIG="/etc/nginx/sites-available/$DOMAIN"
@@ -65,8 +69,26 @@ server {
     server_name $DOMAIN www.$DOMAIN;
 
     location / {
-        return 301 https://\$host\$request_uri;
+        root /var/www/html;
+        index index.html;
     }
+}
+EOL
+
+ln -s $NGINX_CONFIG /etc/nginx/sites-enabled/
+rm -f /etc/nginx/sites-enabled/default
+systemctl restart nginx
+
+# Получение SSL сертификата
+echo "Получение SSL сертификата..."
+certbot --nginx -d $DOMAIN -d www.$DOMAIN --non-interactive --agree-tos --email admin@$DOMAIN
+
+# Обновление конфигурации Nginx с SSL
+cat > $NGINX_CONFIG <<EOL
+server {
+    listen 80;
+    server_name $DOMAIN www.$DOMAIN;
+    return 301 https://\$host\$request_uri;
 }
 
 server {
@@ -83,17 +105,10 @@ server {
 }
 EOL
 
-ln -s $NGINX_CONFIG /etc/nginx/sites-enabled/
-rm /etc/nginx/sites-enabled/default
+# Проверка и перезапуск Nginx
+nginx -t && systemctl restart nginx
 
-# Получение SSL сертификата
-echo "Получение SSL сертификата..."
-certbot --nginx -d $DOMAIN -d www.$DOMAIN --non-interactive --agree-tos --email admin@$DOMAIN
-
-# Перезапуск Nginx
-systemctl restart nginx
-
-# Разрешаем порт Shadowsocks в UFW
+# Открываем порт Shadowsocks в UFW
 ufw allow $PORT/tcp
 ufw allow $PORT/udp
 
